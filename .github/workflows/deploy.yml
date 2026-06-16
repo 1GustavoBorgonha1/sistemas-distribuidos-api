@@ -10,7 +10,7 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  IMAGE_NAME: yanclops/sistemas-distribuidos-api
+  IMAGE_NAME: gustavoborgonha/bibliotecasys-backend
   K8S_NAMESPACE: app
   K8S_DEPLOYMENT: sistemas-distribuidos
 
