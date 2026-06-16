@@ -5,7 +5,6 @@ import { User } from '../models/User';
 import { requireAuth, requireAdmin, AuthRequest } from '../middlewares/auth';
 import { publishLoanEvent } from '../services/queue';
 import { cacheDel } from '../services/cache';
-import mongoose from 'mongoose';
 
 const router = Router();
 
@@ -16,34 +15,27 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
     return;
   }
 
-  const session = await mongoose.startSession();
-  session.startTransaction();
   try {
-    const book = await Book.findById(bookId).session(session);
+    const book = await Book.findById(bookId);
     if (!book) {
-      await session.abortTransaction();
       res.status(404).json({ message: 'Livro não encontrado' });
       return;
     }
     if (book.availableQty < 1) {
-      await session.abortTransaction();
       res.status(409).json({ message: 'Livro sem exemplares disponíveis' });
       return;
     }
 
-    const activeCount = await Loan.countDocuments({ userId: req.userId, bookId, status: 'active' }).session(session);
+    const activeCount = await Loan.countDocuments({ userId: req.userId, bookId, status: 'active' });
     if (activeCount > 0) {
-      await session.abortTransaction();
       res.status(409).json({ message: 'Você já tem este livro emprestado' });
       return;
     }
 
     book.availableQty -= 1;
-    await book.save({ session });
+    await book.save();
 
-    const loan = await Loan.create([{ userId: req.userId, bookId }], { session });
-    await session.commitTransaction();
-
+    const loan = await Loan.create([{ userId: req.userId, bookId }]);
     await cacheDel('books:list:');
 
     const user = await User.findById(req.userId).select('name email');
@@ -61,10 +53,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res: Response): Promise<v
     const populated = await Loan.findById(loan[0]._id).populate('bookId', 'title author isbn');
     res.status(201).json(populated);
   } catch (err) {
-    await session.abortTransaction();
     throw err;
-  } finally {
-    session.endSession();
   }
 });
 

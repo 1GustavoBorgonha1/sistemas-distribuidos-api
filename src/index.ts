@@ -2,8 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import pino from 'pino';
+import swaggerUi from 'swagger-ui-express';
 import { config } from './config';
 import { connectRedis } from './services/cache';
+import { swaggerSpec } from './swagger';
 import authRouter from './routes/auth';
 import booksRouter from './routes/books';
 import loansRouter from './routes/loans';
@@ -16,6 +18,8 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

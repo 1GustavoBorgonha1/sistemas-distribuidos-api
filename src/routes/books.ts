@@ -36,9 +36,18 @@ router.post('/', requireAuth, requireAdmin, async (req: AuthRequest, res: Respon
     res.status(400).json({ message: 'title, author, isbn e totalQty são obrigatórios' });
     return;
   }
-  const book = await Book.create({ title, author, isbn, totalQty, availableQty: totalQty });
-  await cacheDel('books:list:');
-  res.status(201).json(book);
+  try {
+    const book = await Book.create({ title, author, isbn, totalQty, availableQty: totalQty });
+    await cacheDel('books:list:');
+    res.status(201).json(book);
+  } catch (err: unknown) {
+    const mongoErr = err as { code?: number };
+    if (mongoErr.code === 11000) {
+      res.status(409).json({ message: 'Já existe um livro com este ISBN' });
+      return;
+    }
+    res.status(500).json({ message: 'Erro interno ao adicionar livro' });
+  }
 });
 
 router.put('/:id', requireAuth, requireAdmin, async (req: AuthRequest, res: Response): Promise<void> => {
