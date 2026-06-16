@@ -1,0 +1,82 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  IMAGE_NAME: yanclops/sistemas-distribuidos-api
+  K8S_NAMESPACE: app
+  K8S_DEPLOYMENT: sistemas-distribuidos
+
+jobs:
+  build-push:
+    name: Build & Push (Docker Hub)
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag (short SHA)
+        id: meta
+        run: echo "tag=$(echo ${{ github.sha }} | cut -c1-7)" >> "$GITHUB_OUTPUT"
+
+      - name: Login Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build & Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:latest
+
+  deploy:
+    name: Atualiza EC2 (K3s)
+    runs-on: ubuntu-latest
+    needs: build-push
+
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Obter kubeconfig do SSM
+        run: |
+          for i in $(seq 1 10); do
+            VALUE=$(aws ssm get-parameter \
+              --name "/prod/k3s/kubeconfig" \
+              --with-decryption --region "$AWS_REGION" \
+              --query "Parameter.Value" --output text)
+            if echo "$VALUE" | grep -q "apiVersion"; then
+              echo "$VALUE" > kubeconfig.yaml
+              echo "KUBECONFIG=$(pwd)/kubeconfig.yaml" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            echo "K3s ainda inicializando, aguardando 30s... ($i/10)"
+            sleep 30
+          done
+          echo "Timeout: kubeconfig indisponível."; exit 1
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Rollout da nova imagem
+        run: |
+          IMAGE="${{ env.IMAGE_NAME }}:${{ needs.build-push.outputs.tag }}"
+          kubectl -n "$K8S_NAMESPACE" set image "deployment/$K8S_DEPLOYMENT" "$K8S_DEPLOYMENT=$IMAGE"
+          kubectl -n "$K8S_NAMESPACE" rollout status "deployment/$K8S_DEPLOYMENT" --timeout=180s
