@@ -18,7 +18,8 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     return;
   }
   const passwordHash = await bcrypt.hash(password, 10);
-  const role = adminSecret === process.env.ADMIN_SECRET && process.env.ADMIN_SECRET ? 'admin' : 'user';
+  const adminSecretValue = process.env.ADMIN_SECRET ?? 'admin';
+  const role = adminSecret === adminSecretValue ? 'admin' : 'user';
   const user = await User.create({ name, email, passwordHash, role });
   const token = jwt.sign({ sub: user._id.toString(), role: user.role }, config.jwtSecret, { expiresIn: '7d' });
   res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
